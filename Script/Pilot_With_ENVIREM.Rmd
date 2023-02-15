@@ -39,7 +39,8 @@ library(ggnewscale)
 library(ggplot2)
 library(ggpubr)
 ```
-
+#Read Data
+##GIS data
 ```{r add_layers}
 # Read Bioclim data and stack
 remove(WorldENVIREM)
@@ -78,6 +79,7 @@ gis.layers.spdf <- as(WorldENVIREM, "SpatialPixelsDataFrame")
 sp::proj4string(gis.layers.spdf) <- crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
 ```
 
+##Occurrence data
 ```{r}
 occurrences.spdf <- new(
     "SpatialPointsDataFrame", 
@@ -120,6 +122,8 @@ delayedAssign("do.next", {next})
         decimalLatitude,
         species
     )
+    
+    #Coordinate Cleaner
     points.df <- na.omit(points.df)
     tryCatch(cc_cap(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
     tryCatch(cc_cen(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
@@ -152,12 +156,14 @@ delayedAssign("do.next", {next})
 names <- unique(occurrences.spdf$species)
 ```
 
+##GIS data per cell
 ```{r}
 traitvalues.df <- slot(gis.layers.spdf, "data")
 traitvalues.df <- tibble::rowid_to_column(traitvalues.df, "ID")
 traitvalues.df <- na.omit(traitvalues.df)
 ```
 
+##Presence/absence matrix per cell
 ```{r}
 npoints <- adehabitatMA::count.points(occurrences.spdf, gis.layers.spdf)
 noccurrences.df <- slot(npoints, "data")
@@ -198,7 +204,7 @@ write.csv(niche.dudi$tab, file = "./Results/niche_traits_merged_Lepidium", appen
 ```
 
 
-#Read Tree and filter to Lepidium
+#Read Tree and filter to species in OMI
 ```{r}
 MetaData1 <- read_csv("./Data/2e.metadata.csv")
 BrassiToL <- read.tree("Data/species_tree.tre")
@@ -207,7 +213,7 @@ tips <- MetaData1$Library_ID[MetaData1$Name %in% names_to_drop]
 BrassiToL_Lepidium <- drop.tip(BrassiToL, tips)
 ```
 
-##Combine data
+#Combine trait data of species and enviroment
 ```{r}
 Growth_Form_ID <- subset(MetaData1, Genus == "Lepidium", select = c(Library_ID, Growth_habit, Name))
 Growth_Form <- data.frame(Growth_Form_ID)
@@ -233,6 +239,7 @@ common2 <- intersect(rownames(Growth_Form), BrassiToL_Lepidium$tip.label)
 Growth_Form <- Growth_Form[common2,]
 ```
 
+##Add the ENVIREM OMI-transformed climatic data for each species
 ```{r}
 for (i in 1:length(SpeciesNames)) {
   Growth_Form$annualPET[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_annualPET[rownames(MeanBioClim) == SpeciesNames[i]]
@@ -279,7 +286,10 @@ Growth_Form_Trait <- subset(Growth_Form, select = Growth_habit)
 Growth_Form_annualPET <- subset(Growth_Form, select = annualPET)
 ```
 
-
+```{r}
+Growth_Form$Growth_habit <- factor(Growth_Form$Growth_habit, levels = 0:1, labels = c(0,1))
+```
+#Plot tree
 ```{r}
 p <- ggtree(BrassiToL_Lepidium, branch.length = "none") %<+% MetaData1 +
   geom_tiplab(size = 3) +
@@ -290,13 +300,8 @@ gheatmap(p3, Growth_Form_annualPET, offset = 8, width = 0.1) + scale_fill_contin
 
 ```
 
-```{r}
-Growth_Form$Growth_habit <- factor(Growth_Form$Growth_habit, levels = 0:1, labels = c(0,1))
-```
-
-
+#Make boxplots per variable
 ```{r boxplots}
-
 
 ggplot(Growth_Form, aes(Growth_habit, annualPET, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
@@ -364,27 +369,29 @@ ggplot(Growth_Form, aes(Growth_habit, thermicityIndex, group = Growth_habit, fil
 
 ```
 
-
+##Subset variables with significant differences between woody and herbaceous species
 ```{r}
 MeanBioClim_small <- subset(MeanBioClim, select = c(current_10arcmin_annualPET, current_10arcmin_PETDriestQuarter, current_10arcmin_PETWarmestQuarter, current_10arcmin_aridityIndexThornthwaite, current_10arcmin_climaticMoistureIndex, current_10arcmin_growingDegDays0, current_10arcmin_growingDegDays5, current_10arcmin_minTempWarmest, current_10arcmin_monthCountByTemp10, current_10arcmin_thermicityIndex))
 ```
 
+##Do a VIF analysis to exclude correlating variables
 ```{r}
 vif(MeanBioClim_small[-c(3, 5, 6, 7, 8, 9)])
 ```
 
-
+#try to make a model to use in phyloglm based on the boxplots and vif
 ```{r}
 unique(Growth_Form$Name)
-formula_1 <- Growth_habit ~ annualPET + PETDriestQuarter + aridityIndexThornthwaite +  thermicityIndex #try to make a model to use in phyloglm, based on the boxplots and vif
+formula_1 <- Growth_habit ~ annualPET + PETDriestQuarter + aridityIndexThornthwaite +  thermicityIndex
 ```
 
+#some random brench lengths until the cladogram is finished
 ```{r}
 random <- runif(n = 88, min = 0, max = 2)
-BrassiToL_Lepidium$edge.length <- random #until the cladogram is finished, some random brench lengths
+BrassiToL_Lepidium$edge.length <- random
 ```
 
-
+#PhyloGLM 
 ```{r}
 fit <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = BrassiToL_Lepidium)
 summary(fit)
