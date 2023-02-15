@@ -1,0 +1,201 @@
+---
+title: "OMI with Envirem data"
+author: "Marit Kuijt"
+date: "2023-02-14"
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "C:/Users/marit/OneDrive/Documenten/Masterstage Naturalis/brassicaceae-trait-climate-analysis")
+```
+
+```{r}
+library(geodata)
+options(stringsAsFactors = FALSE)
+library(raster)
+library(tidyverse)
+library(sp)
+library(adehabitatMA)
+library(optparse)
+library(yaml)
+library(dplyr)
+library(ade4)
+library(tibble)
+library(logger)
+library(CoordinateCleaner)
+library(fuzzySim)
+library(factoextra)
+library(ggforce)
+library(ggalt)
+library(ggtree)
+library(usdm)
+library(subniche)
+library(knitr)
+library(phylolm)
+library(ggnewscale)
+```
+
+```{r add_layers}
+# Read Bioclim data and stack
+remove(WorldENVIREM)
+WorldENVIREM <- raster()
+
+# The location of the TIFF file with the stacked layers described directly above
+files.names <- list.files("./Data/ENVIREM")
+# Turn the file names into layer names: strip the prefix (which might include
+# the resolution) and strip the file extension
+gis.layers.names <- files.names
+gis.layers.names <- gsub('./Data/wc2.1_10m_','',gis.layers.names)
+gis.layers.names <- gsub('.tif','',gis.layers.names)
+
+gis.layers <- c()
+# Iterate over files
+for (j in 1:length(files.names)) {
+  
+  # Stack with previously read layers
+  WorldENVIREM <- stack(
+    WorldENVIREM,
+    
+    # Read as raster
+    raster(
+      
+      # Construct file name
+      paste("./Data/ENVIREM/", files.names[j], sep = "")
+    )
+  )
+}
+
+rm(gis.layers.names, files.names, j)
+plot(WorldENVIREM)
+```
+```{r}
+gis.layers.spdf <- as(WorldENVIREM, "SpatialPixelsDataFrame")
+sp::proj4string(gis.layers.spdf) <- crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+```
+
+```{r}
+occurrences.spdf <- new(
+    "SpatialPointsDataFrame", 
+    coords = structure(
+        numeric(0), 
+        .Dim = c(0L, 2L),
+        .Dimnames = list( NULL, c("x", "y") )
+    ),  
+    bbox = structure(
+        c(1,1,1,1), 
+        .Dim = c(2L, 2L),                         
+        .Dimnames = list( c("x","y"), c("min","max") )
+    ),
+    proj4string = crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+) 
+```
+
+```{r}
+# Populate the empty dataframe with lat/lon values from the taxa list
+gbif_summary <- read.csv("Data/gbif_summary.csv")
+# set for example i in 1:100 in the case of memory limits 
+taxa.names <- gbif_summary[grep("Lepidium", gbif_summary$Name),]
+taxa.names <- taxa.names$Name[taxa.names$BrassiBase_status == "accepted" & taxa.names$gbif_records_w_coordinates > 20]
+for (j in 1:length(taxa.names)) {
+    
+    # Prevent out of bounds errors
+    if (j > 50) {
+        break
+    }
+delayedAssign("do.next", {next})
+  
+	# Read occurrences
+    species.key <- gbif_summary$speciesKey[gbif_summary$Name == taxa.names[j] & !duplicated(gbif_summary$Name)]
+    csv.file <- paste("Data/gbif_occurrences_per_key/", species.key, ".csv", sep = "")
+    csv.data <- read.csv(csv.file)
+    #tryCatch(csv.data <- read.csv(csv.file), error=function(e) force(do.next))
+    points.df <- dplyr::select(
+        csv.data,
+        decimalLongitude,
+        decimalLatitude,
+        species
+    )
+    points.df <- na.omit(points.df)
+    tryCatch(cc_cap(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
+    tryCatch(cc_cen(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
+    tryCatch(cc_dupl(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
+    tryCatch(cc_equ(points.df, lon = "decimalLongitude", lat = "decimalLatitude"), error=function(e) force(do.next))
+    tryCatch(cc_gbif(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
+    tryCatch(cc_inst(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
+    tryCatch(cc_outl(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species"), error=function(e) force(do.next))
+    tryCatch(cc_sea(points.df, lon = "decimalLongitude", lat = "decimalLatitude"), error=function(e) force(do.next))
+    tryCatch(cc_zero(points.df, lon = "decimalLongitude", lat = "decimalLatitude"), error=function(e) force(do.next))
+    
+    if(nrow(points.df) < 20) {next}
+    sp::coordinates(points.df) <- ~ decimalLongitude + decimalLatitude
+    proj4string(points.df) <- crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    
+    # Populate SpatialPointsDataFrame for focal taxon
+    focal.spdf <- SpatialPointsDataFrame(
+    	points.df, 
+    	data.frame(species = rep(taxa.names[j], NROW(points.df))), 
+    	proj4string = crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    )
+    proj4string(focal.spdf) <- crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    
+    # Append to cumulative data frame
+    occurrences.spdf <- rbind(occurrences.spdf, focal.spdf)
+}
+```
+
+```{r}
+unique(occurrences.spdf$species)
+```
+
+```{r}
+traitvalues.df <- slot(gis.layers.spdf, "data")
+traitvalues.df <- tibble::rowid_to_column(traitvalues.df, "ID")
+traitvalues.df <- na.omit(traitvalues.df)
+```
+
+```{r}
+npoints <- adehabitatMA::count.points(occurrences.spdf, gis.layers.spdf)
+noccurrences.df <- slot(npoints, "data")
+noccurrences.df <- tibble::rowid_to_column(noccurrences.df, "ID")
+noccurrences.df <- subset(noccurrences.df, noccurrences.df$ID %in% traitvalues.df$ID)
+noccurrences.df <- subset(noccurrences.df, select = -ID)
+noccurrences.df[noccurrences.df > 0] <- 1
+```
+
+
+#OMI analysis
+##First a PCA
+```{r}
+traitvalues.dudi <- ade4::dudi.pca(
+    traitvalues.df[2:length(traitvalues.df)], 
+    scannf = F
+)
+```
+
+##Then the OMI analysis
+```{r}
+niche.dudi <- ade4::niche(traitvalues.dudi, noccurrences.df, scannf = F)
+scatter(niche.dudi)
+screeplot(niche.dudi)
+MeanBioClim <- niche.dudi$tab
+```
+
+```{r}
+rbind(
+  Eigenvalue = niche.dudi$eig,
+  Proportion = niche.dudi$eig/sum(niche.dudi$eig),
+  Cumulative = cumsum(niche.dudi$eig)/sum(niche.dudi$eig))
+```
+
+##Save output
+```{r}
+write.csv(niche.dudi$tab, file = "./Results/niche_traits_merged_Lepidium", append = T, quote = F )
+```
+
+#Visualise data
+```{r}
+plot()
+```
