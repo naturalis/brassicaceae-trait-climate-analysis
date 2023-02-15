@@ -36,6 +36,8 @@ library(subniche)
 library(knitr)
 library(phylolm)
 library(ggnewscale)
+library(ggplot2)
+library(ggpubr)
 ```
 
 ```{r add_layers}
@@ -73,7 +75,7 @@ plot(WorldENVIREM)
 ```
 ```{r}
 gis.layers.spdf <- as(WorldENVIREM, "SpatialPixelsDataFrame")
-sp::proj4string(gis.layers.spdf) <- crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+sp::proj4string(gis.layers.spdf) <- crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
 ```
 
 ```{r}
@@ -89,7 +91,7 @@ occurrences.spdf <- new(
         .Dim = c(2L, 2L),                         
         .Dimnames = list( c("x","y"), c("min","max") )
     ),
-    proj4string = crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    proj4string = crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
 ) 
 ```
 
@@ -99,10 +101,10 @@ gbif_summary <- read.csv("Data/gbif_summary.csv")
 # set for example i in 1:100 in the case of memory limits 
 taxa.names <- gbif_summary[grep("Lepidium", gbif_summary$Name),]
 taxa.names <- taxa.names$Name[taxa.names$BrassiBase_status == "accepted" & taxa.names$gbif_records_w_coordinates > 20]
-for (j in 1:length(taxa.names)) {
+for (j in 1:100) {
     
     # Prevent out of bounds errors
-    if (j > 50) {
+    if (j > length(taxa.names)) {
         break
     }
 delayedAssign("do.next", {next})
@@ -131,15 +133,15 @@ delayedAssign("do.next", {next})
     
     if(nrow(points.df) < 20) {next}
     sp::coordinates(points.df) <- ~ decimalLongitude + decimalLatitude
-    proj4string(points.df) <- crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    proj4string(points.df) <- crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
     
     # Populate SpatialPointsDataFrame for focal taxon
     focal.spdf <- SpatialPointsDataFrame(
     	points.df, 
     	data.frame(species = rep(taxa.names[j], NROW(points.df))), 
-    	proj4string = crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    	proj4string = crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
     )
-    proj4string(focal.spdf) <- crs("+proj=longlat +datum=WGS84", doCheckCRSArgs = T)
+    proj4string(focal.spdf) <- crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
     
     # Append to cumulative data frame
     occurrences.spdf <- rbind(occurrences.spdf, focal.spdf)
@@ -147,7 +149,7 @@ delayedAssign("do.next", {next})
 ```
 
 ```{r}
-unique(occurrences.spdf$species)
+names <- unique(occurrences.spdf$species)
 ```
 
 ```{r}
@@ -195,7 +197,196 @@ rbind(
 write.csv(niche.dudi$tab, file = "./Results/niche_traits_merged_Lepidium", append = T, quote = F )
 ```
 
-#Visualise data
+
+#Read Tree and filter to Lepidium
 ```{r}
-plot()
+MetaData1 <- read_csv("./Data/2e.metadata.csv")
+BrassiToL <- read.tree("Data/species_tree.tre")
+names_to_drop <- setdiff(MetaData1$Name, names)
+tips <- MetaData1$Library_ID[MetaData1$Name %in% names_to_drop]
+BrassiToL_Lepidium <- drop.tip(BrassiToL, tips)
+```
+
+##Combine data
+```{r}
+Growth_Form_ID <- subset(MetaData1, Genus == "Lepidium", select = c(Library_ID, Growth_habit, Name))
+Growth_Form <- data.frame(Growth_Form_ID)
+rownames(Growth_Form) <- Growth_Form_ID$Library_ID
+Growth_Form <- subset(Growth_Form, select = c(Growth_habit, Name))
+```
+
+```{r}
+Growth_Form$Growth_habit[Growth_Form$Growth_habit == "H"] <- 0
+Growth_Form$Growth_habit[Growth_Form$Growth_habit == "W"] <- 1
+Growth_Form$Growth_habit <- base::as.numeric(Growth_Form$Growth_habit)
+```
+
+```{r}
+rownames(MeanBioClim) <- gsub(".", " ", rownames(MeanBioClim), fixed = T)
+common1 <- intersect(rownames(MeanBioClim), Growth_Form_ID$Name)
+MeanBioClim <- MeanBioClim[common1,]
+SpeciesNames <- rownames(MeanBioClim)
+```
+
+```{r}
+common2 <- intersect(rownames(Growth_Form), BrassiToL_Lepidium$tip.label)
+Growth_Form <- Growth_Form[common2,]
+```
+
+```{r}
+for (i in 1:length(SpeciesNames)) {
+  Growth_Form$annualPET[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_annualPET[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$aridityIndexThornthwaite[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_aridityIndexThornthwaite[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$climaticMoistureIndex[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_climaticMoistureIndex[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$continentality[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_continentality[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$embergerQ[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_embergerQ[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$growingDegDays0[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_growingDegDays0[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$growingDegDays5[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_growingDegDays5[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$maxTempColdest[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_maxTempColdest[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$minTempWarmest[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_minTempWarmest[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$monthCountByTemp10[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_monthCountByTemp10[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$PETColdestQuarter[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_PETColdestQuarter[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$PETDriestQuarter[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_PETDriestQuarter[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$PETseasonality[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_PETseasonality[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$PETWarmestQuarter[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_PETWarmestQuarter[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$PETWettestQuarter[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_PETWettestQuarter[rownames(MeanBioClim) == SpeciesNames[i]]
+  
+  Growth_Form$thermicityIndex[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$current_10arcmin_thermicityIndex[rownames(MeanBioClim) == SpeciesNames[i]]
+}
+```
+
+```{r}
+Growth_Form <- na.omit(Growth_Form)
+```
+
+```{r}
+Growth_Form_Name <- subset(Growth_Form, select = Name)
+Growth_Form_Trait <- subset(Growth_Form, select = Growth_habit)
+  Growth_Form_Trait$Growth_habit <- as.factor(Growth_Form_Trait$Growth_habit)
+Growth_Form_annualPET <- subset(Growth_Form, select = annualPET)
+```
+
+
+```{r}
+p <- ggtree(BrassiToL_Lepidium, branch.length = "none") %<+% MetaData1 +
+  geom_tiplab(size = 3) +
+  geom_tiplab(aes(label = Name), offset = 2, size = 3)
+p2 <- gheatmap(p, Growth_Form_Trait, offset = 5, width = 0.1)
+p3 <- p2 + new_scale_fill()
+gheatmap(p3, Growth_Form_annualPET, offset = 8, width = 0.1) + scale_fill_continuous(na.value = "white")
+
+```
+
+```{r}
+Growth_Form$Growth_habit <- factor(Growth_Form$Growth_habit, levels = 0:1, labels = c(0,1))
+```
+
+
+```{r boxplots}
+
+
+ggplot(Growth_Form, aes(Growth_habit, annualPET, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, PETColdestQuarter, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, PETWettestQuarter, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+      
+ggplot(Growth_Form, aes(Growth_habit, PETDriestQuarter, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, PETseasonality, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, PETWarmestQuarter, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, aridityIndexThornthwaite, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, climaticMoistureIndex, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, continentality, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, embergerQ, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, growingDegDays0, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, growingDegDays5, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, maxTempColdest, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, minTempWarmest, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, monthCountByTemp10, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+ggplot(Growth_Form, aes(Growth_habit, thermicityIndex, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+```
+
+
+```{r}
+MeanBioClim_small <- subset(MeanBioClim, select = c(current_10arcmin_annualPET, current_10arcmin_PETDriestQuarter, current_10arcmin_PETWarmestQuarter, current_10arcmin_aridityIndexThornthwaite, current_10arcmin_climaticMoistureIndex, current_10arcmin_growingDegDays0, current_10arcmin_growingDegDays5, current_10arcmin_minTempWarmest, current_10arcmin_monthCountByTemp10, current_10arcmin_thermicityIndex))
+```
+
+```{r}
+vif(MeanBioClim_small[-c(3, 5, 6, 7, 8, 9)])
+
+```
+
+
+```{r}
+unique(Growth_Form$Name)
+formula_1 <- Growth_habit ~ annualPET + PETDriestQuarter + aridityIndexThornthwaite +  thermicityIndex #try to make a model to use in phyloglm, based on the boxplots and vif
+```
+
+```{r}
+random <- runif(n = 88, min = 0, max = 2)
+BrassiToL_Lepidium$edge.length <- random #until the cladogram is finished, some random brench lengths
+```
+
+
+```{r}
+fit <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = BrassiToL_Lepidium)
+summary(fit)
 ```
