@@ -38,11 +38,13 @@ library(phylolm)
 library(ggnewscale)
 library(ggplot2)
 library(ggpubr)
+library(ape)
+library(phytools)
 ```
 #Read Data
 ##GIS data
 ```{r add_layers}
-# Read Bioclim data and stack
+# Read ENVIREM data and stack
 remove(WorldENVIREM)
 WorldENVIREM <- raster()
 
@@ -72,10 +74,48 @@ for (j in 1:length(files.names)) {
 }
 
 rm(gis.layers.names, files.names, j)
-plot(WorldENVIREM)
+#plot(WorldENVIREM)
 ```
 ```{r}
-gis.layers.spdf <- as(WorldENVIREM, "SpatialPixelsDataFrame")
+gis.layers.WE.spdf <- as(WorldENVIREM, "SpatialPixelsDataFrame")
+sp::proj4string(gis.layers.WE.spdf) <- crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
+```
+
+```{r add_layers}
+## Read Bioclim data and stack
+remove(WorldBioClim)
+WorldBioClim <- raster()
+
+# The location of the TIFF file with the stacked layers described directly above
+files.names <- list.files("./Data/wc2.1_10m")
+# Turn the file names into layer names: strip the prefix (which might include
+# the resolution) and strip the file extension
+gis.layers.names <- files.names
+gis.layers.names <- gsub('./Data/wc2.1_10m_','',gis.layers.names)
+gis.layers.names <- gsub('.tif','',gis.layers.names)
+
+gis.layers <- c()
+# Iterate over files
+for (i in 1:length(files.names)) {
+  
+  # Stack with previously read layers
+  WorldBioClim <- stack(
+    WorldBioClim,
+    
+    # Read as raster
+    raster(
+      
+      # Construct file name
+      paste("./Data/wc2.1_10m/", files.names[i], sep = "")
+    )
+  )
+}
+
+rm(gis.layers.names, files.names, i)
+plot(WorldBioClim)
+```
+```{r}
+gis.layers.WBC.spdf <- as(WorldBioClim, "SpatialPixelsDataFrame")
 sp::proj4string(gis.layers.spdf) <- crs("+proj=longlat +ellps=WGS84", doCheckCRSArgs = T)
 ```
 
@@ -103,7 +143,7 @@ gbif_summary <- read.csv("Data/gbif_summary.csv")
 # set for example i in 1:100 in the case of memory limits 
 taxa.names <- gbif_summary[grep("Lepidium", gbif_summary$Name),]
 taxa.names <- taxa.names$Name[taxa.names$BrassiBase_status == "accepted" & taxa.names$gbif_records_w_coordinates > 20]
-for (j in 1:100) {
+for (j in 1:50) {
     
     # Prevent out of bounds errors
     if (j > length(taxa.names)) {
@@ -149,6 +189,7 @@ delayedAssign("do.next", {next})
     
     # Append to cumulative data frame
     occurrences.spdf <- rbind(occurrences.spdf, focal.spdf)
+    
 }
 ```
 
@@ -158,14 +199,14 @@ names <- unique(occurrences.spdf$species)
 
 ##GIS data per cell
 ```{r}
-traitvalues.df <- slot(gis.layers.spdf, "data")
+traitvalues.df <- slot(gis.layers.WE.spdf, "data")
 traitvalues.df <- tibble::rowid_to_column(traitvalues.df, "ID")
 traitvalues.df <- na.omit(traitvalues.df)
 ```
 
 ##Presence/absence matrix per cell
 ```{r}
-npoints <- adehabitatMA::count.points(occurrences.spdf, gis.layers.spdf)
+npoints <- adehabitatMA::count.points(occurrences.spdf, gis.layers.WE.spdf)
 noccurrences.df <- slot(npoints, "data")
 noccurrences.df <- tibble::rowid_to_column(noccurrences.df, "ID")
 noccurrences.df <- subset(noccurrences.df, noccurrences.df$ID %in% traitvalues.df$ID)
@@ -189,6 +230,7 @@ niche.dudi <- ade4::niche(traitvalues.dudi, noccurrences.df, scannf = F)
 scatter(niche.dudi)
 screeplot(niche.dudi)
 MeanBioClim <- niche.dudi$tab
+kable(niche.param(niche.dudi))
 ```
 
 ```{r}
@@ -276,6 +318,31 @@ for (i in 1:length(SpeciesNames)) {
 ```
 
 ```{r}
+for (i in 1:length(SpeciesNames)) {
+  Growth_Form$BioClim1[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_1[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim2[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_2[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim3[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_3[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim4[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_4[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim5[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_5[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim6[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_6[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim7[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_7[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim8[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_8[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim9[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_9[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim10[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_10[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim11[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_11[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim12[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_12[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim13[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_13[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim14[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_14[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim15[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_15[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim16[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_16[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim17[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_17[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim18[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_18[rownames(MeanBioClim) == SpeciesNames[i]]
+  Growth_Form$BioClim19[Growth_Form$Name == SpeciesNames[i]] <- MeanBioClim$wc2.1_10m_bio_19[rownames(MeanBioClim) == SpeciesNames[i]]
+}
+```
+
+
+```{r}
 Growth_Form <- na.omit(Growth_Form)
 ```
 
@@ -291,7 +358,7 @@ Growth_Form$Growth_habit <- factor(Growth_Form$Growth_habit, levels = 0:1, label
 ```
 #Plot tree
 ```{r}
-p <- ggtree(BrassiToL_Lepidium, branch.length = "none") %<+% MetaData1 +
+p <- ggtree(BrassiToL_Lepidium) %<+% MetaData1 +
   geom_tiplab(size = 3) +
   geom_tiplab(aes(label = Name), offset = 2, size = 3)
 p2 <- gheatmap(p, Growth_Form_Trait, offset = 5, width = 0.1)
@@ -300,99 +367,204 @@ gheatmap(p3, Growth_Form_annualPET, offset = 8, width = 0.1) + scale_fill_contin
 
 ```
 
-#Make boxplots per variable
+#Boxplots
+##Make boxplots per variable ENVIREM
 ```{r boxplots}
 
-ggplot(Growth_Form, aes(Growth_habit, annualPET, group = Growth_habit, fill = Growth_habit)) +
+annualPET <- ggplot(Growth_Form, aes(Growth_habit, annualPET, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, PETColdestQuarter, group = Growth_habit, fill = Growth_habit)) +
+PETColdest <- ggplot(Growth_Form, aes(Growth_habit, PETColdestQuarter, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, PETWettestQuarter, group = Growth_habit, fill = Growth_habit)) +
+PETWettest <- ggplot(Growth_Form, aes(Growth_habit, PETWettestQuarter, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
       
-ggplot(Growth_Form, aes(Growth_habit, PETDriestQuarter, group = Growth_habit, fill = Growth_habit)) +
+PETDriest <- ggplot(Growth_Form, aes(Growth_habit, PETDriestQuarter, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, PETseasonality, group = Growth_habit, fill = Growth_habit)) +
+PETseasonality <- ggplot(Growth_Form, aes(Growth_habit, PETseasonality, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, PETWarmestQuarter, group = Growth_habit, fill = Growth_habit)) +
+PETWarmest <- ggplot(Growth_Form, aes(Growth_habit, PETWarmestQuarter, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, aridityIndexThornthwaite, group = Growth_habit, fill = Growth_habit)) +
+Thornthwaite <- ggplot(Growth_Form, aes(Growth_habit, aridityIndexThornthwaite, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, climaticMoistureIndex, group = Growth_habit, fill = Growth_habit)) +
+climaticMoisture <- ggplot(Growth_Form, aes(Growth_habit, climaticMoistureIndex, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, continentality, group = Growth_habit, fill = Growth_habit)) +
+continentality <- ggplot(Growth_Form, aes(Growth_habit, continentality, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, embergerQ, group = Growth_habit, fill = Growth_habit)) +
+embergerQ <- ggplot(Growth_Form, aes(Growth_habit, embergerQ, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, growingDegDays0, group = Growth_habit, fill = Growth_habit)) +
+growing0 <- ggplot(Growth_Form, aes(Growth_habit, growingDegDays0, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, growingDegDays5, group = Growth_habit, fill = Growth_habit)) +
+growing5 <- ggplot(Growth_Form, aes(Growth_habit, growingDegDays5, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, maxTempColdest, group = Growth_habit, fill = Growth_habit)) +
+maxTempColdest <- ggplot(Growth_Form, aes(Growth_habit, maxTempColdest, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, minTempWarmest, group = Growth_habit, fill = Growth_habit)) +
+minTempWarmest <- ggplot(Growth_Form, aes(Growth_habit, minTempWarmest, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, monthCountByTemp10, group = Growth_habit, fill = Growth_habit)) +
+month10 <- ggplot(Growth_Form, aes(Growth_habit, monthCountByTemp10, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
-ggplot(Growth_Form, aes(Growth_habit, thermicityIndex, group = Growth_habit, fill = Growth_habit)) +
+thermicity <- ggplot(Growth_Form, aes(Growth_habit, thermicityIndex, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
   stat_compare_means(method = "t.test")
 
+```
+
+```{r}
+ggarrange(PETDriest + rremove("xlab") + rremove("legend"), minTempWarmest + rremove("xlab") + rremove("legend"), PETWarmest + rremove("xlab") + rremove("legend"), Thornthwaite + rremove("xlab") + rremove("legend"), month10 + rremove("xlab") + rremove("legend"), growing5 + rremove("xlab") + rremove("legend"), thermicity + rremove("xlab") + rremove("legend"), annualPET + rremove("xlab") + rremove("legend"), growing0 + rremove("xlab") + rremove("legend"), climaticMoisture + rremove("xlab") + rremove("legend"), PETseasonality + rremove("xlab") + rremove("legend"), maxTempColdest + rremove("xlab") + rremove("legend"), PETColdest + rremove("xlab") + rremove("legend"), PETWettest + rremove("xlab") + rremove("legend"), embergerQ + rremove("xlab") + rremove("legend"), continentality + rremove("xlab") + rremove("legend"), ncol = 4, nrow = 4)
+```
+
+##Make boxplots per variable BioClim
+```{r boxplots}
+
+Bio1 <- ggplot(Growth_Form, aes(Growth_habit, BioClim1, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio2 <- ggplot(Growth_Form, aes(Growth_habit, BioClim2, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio3 <- ggplot(Growth_Form, aes(Growth_habit, BioClim3, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+      
+Bio4 <- ggplot(Growth_Form, aes(Growth_habit, BioClim4, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio5 <- ggplot(Growth_Form, aes(Growth_habit, BioClim5, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio6 <- ggplot(Growth_Form, aes(Growth_habit, BioClim6, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio7 <- ggplot(Growth_Form, aes(Growth_habit, BioClim7, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio8 <- ggplot(Growth_Form, aes(Growth_habit, BioClim8, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio9 <- ggplot(Growth_Form, aes(Growth_habit, BioClim9, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio10 <- ggplot(Growth_Form, aes(Growth_habit, BioClim10, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio11 <- ggplot(Growth_Form, aes(Growth_habit, BioClim11, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio12 <- ggplot(Growth_Form, aes(Growth_habit, BioClim12, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio13 <- ggplot(Growth_Form, aes(Growth_habit, BioClim13, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio14 <- ggplot(Growth_Form, aes(Growth_habit, BioClim14, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio15 <- ggplot(Growth_Form, aes(Growth_habit, BioClim15, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio16 <- ggplot(Growth_Form, aes(Growth_habit, BioClim16, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio17 <- ggplot(Growth_Form, aes(Growth_habit, BioClim17, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio18 <- ggplot(Growth_Form, aes(Growth_habit, BioClim18, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio19 <- ggplot(Growth_Form, aes(Growth_habit, BioClim19, group = Growth_habit, fill = Growth_habit)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test")
+
+Bio19
+
+```
+
+```{r}
+ggarrange(Bio1 + rremove("xlab") + rremove("legend"), Bio2 + rremove("xlab") + rremove("legend"), Bio3 + rremove("xlab") + rremove("legend"), Bio4 + rremove("xlab") + rremove("legend"), Bio5 + rremove("xlab") + rremove("legend"), Bio6 + rremove("xlab") + rremove("legend"), Bio7 + rremove("xlab") + rremove("legend"), Bio8 + rremove("xlab") + rremove("legend"), Bio9 + rremove("xlab") + rremove("legend"), Bio10 + rremove("xlab") + rremove("legend"), Bio11 + rremove("xlab") + rremove("legend"), Bio12 + rremove("xlab") + rremove("legend"), Bio13 + rremove("xlab") + rremove("legend"), Bio14 + rremove("xlab") + rremove("legend"), Bio15 + rremove("xlab") + rremove("legend"), Bio16 + rremove("xlab") + rremove("legend"), Bio17 + rremove("xlab") + rremove("legend"), Bio18 + rremove("xlab") + rremove("legend"), Bio19 + rremove("xlab") + rremove("legend"), ncol = 4, nrow = 5)
 ```
 
 ##Subset variables with significant differences between woody and herbaceous species
 ```{r}
-MeanBioClim_small <- subset(MeanBioClim, select = c(current_10arcmin_annualPET, current_10arcmin_PETDriestQuarter, current_10arcmin_PETWarmestQuarter, current_10arcmin_aridityIndexThornthwaite, current_10arcmin_climaticMoistureIndex, current_10arcmin_growingDegDays0, current_10arcmin_growingDegDays5, current_10arcmin_minTempWarmest, current_10arcmin_monthCountByTemp10, current_10arcmin_thermicityIndex))
+MeanBioClim_small <- MeanBioClim
 ```
 
 ##Do a VIF analysis to exclude correlating variables
 ```{r}
-vif(MeanBioClim_small[-c(3, 5, 6, 7, 8, 9)])
+vif(MeanBioClim_small[-c(1, 3, 5, 6, 7, 8, 9, 10, 11, 14)])
 ```
 
 #try to make a model to use in phyloglm based on the boxplots and vif
 ```{r}
 unique(Growth_Form$Name)
-formula_1 <- Growth_habit ~ annualPET + PETDriestQuarter + aridityIndexThornthwaite +  thermicityIndex
+Formula_2 <- Growth_habit ~ BioClim1 + BioClim5 + BioClim9 + BioClim10
+formula_1 <- Growth_habit ~ PETDriestQuarter + PETseasonality + aridityIndexThornthwaite + continentality + PETWettestQuarter + thermicityIndex
 ```
 
-#some random brench lengths until the cladogram is finished
+#make brench lengths 1 and extend branches
 ```{r}
-random <- runif(n = 88, min = 0, max = 2)
-BrassiToL_Lepidium$edge.length <- random
+BrassiToL_Lepidium_extended <- BrassiToL_Lepidium
+edge_length <- replicate(46, 1)
+BrassiToL_Lepidium_extended$edge.length <- edge_length
+N <- Ntip(BrassiToL_Lepidium_extended)
+root_node <- N+1
+root_to_tip <- dist.nodes(BrassiToL_Lepidium_extended)[1:N, root_node]
+var(root_to_tip)
+age_difference <- max(root_to_tip) - root_to_tip
+tip_edges <- BrassiToL_Lepidium_extended$edge[, 2] <= Ntip(BrassiToL_Lepidium_extended)
+BrassiToL_Lepidium_extended$edge.length[tip_edges] <- BrassiToL_Lepidium_extended$edge.length[tip_edges] + age_difference
+is.ultrametric(BrassiToL_Lepidium_extended)
+
+plot(BrassiToL_Lepidium_extended)
+## [1] TRUE
 ```
 
 #PhyloGLM 
 ```{r}
-fit <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = BrassiToL_Lepidium)
+fit <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = BrassiToL_Lepidium_extended, btol = 50)
 summary(fit)
 ```
