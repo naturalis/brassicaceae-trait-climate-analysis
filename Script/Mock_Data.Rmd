@@ -1,10 +1,13 @@
+
 ---
-title: "OMI with Envirem data"
+title: "Dummy Data"
 author: "Marit Kuijt"
 date: "2023-02-14"
 output:
-  pdf_document: default
+  pdf_document:
+    latex_engine: xelatex
   html_document: default
+  word_document: default
 editor_options:
   chunk_output_type: console
 ---
@@ -14,12 +17,11 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "C:/Users/marit/OneDrive/Documenten/Masterstage Naturalis/brassicaceae-trait-climate-analysis")
 ```
 
-```{r}
-setwd("~/Masterstage Naturalis/brassicaceae-trait-climate-analysis")
+```{r, include=FALSE}
 library(geodata)
 options(stringsAsFactors = FALSE)
 library(raster)
-library(tidyverse)
+library(tidyverse, quietly = TRUE)
 library(sp)
 library(adehabitatMA)
 library(optparse)
@@ -59,7 +61,8 @@ files.names <- list.files("./Data/ENVIREM")
 # Turn the file names into layer names: strip the prefix (which might include
 # the resolution) and strip the file extension
 gis.layers.names <- files.names
-gis.layers.names <- gsub("current_10arcmin_", "", gis.layers.names)
+gis.layers.names <- gsub('./Data/wc2.1_10m_','',gis.layers.names)
+gis.layers.names <- gsub('.tif','',gis.layers.names)
 
 gis.layers <- c()
 # Iterate over files
@@ -77,14 +80,6 @@ for (j in 1:length(files.names)) {
     )
   )
 }
-plot(WorldENVIREM)
-```
-
-##Extract coordinates from 1 layer
-```{r}
-WorldENVIREM1.spdf <- as(WorldENVIREM@layers[[1]], "SpatialPixelsDataFrame")
-sp::proj4string(WorldENVIREM1.spdf) <- crs("+proj=longlat +ellps=WGS84")
-coordinates <- WorldENVIREM1.spdf@coords
 ```
 
 ##UV Data
@@ -97,6 +92,7 @@ sp::proj4string(UV_Data) <- crs("+proj=longlat +datum=WGS84")
 
 ###Extract coordinates from cells of ENVIREM and values from these cells of UV data
 ```{r}
+coordinates <- raster::xyFromCell(WorldENVIREM, 1:1944000)
 UV_cells <- raster::cellFromXY(UV_Data.raster, coordinates)
 UV_values <- raster::extract(UV_Data.raster, UV_cells)
 UV_Bound <- cbind(coordinates, UV_values)
@@ -109,9 +105,7 @@ sp::proj4string(UV_Bound.raster) <- crs("+proj=longlat +ellps=WGS84")
 ```
 
 ```{r}
-WorldENVIREM <- crop(WorldENVIREM, UV_Bound.raster)
 WorldENVIREM <- stack(WorldENVIREM, UV_Bound.raster)
-plot(WorldENVIREM)
 
 rm(gis.layers.names, files.names, j)
 ```
@@ -153,7 +147,33 @@ All_Layers.spdf <- as(All_Layers, "SpatialPixelsDataFrame")
 sp::proj4string(All_Layers.spdf) <- crs("+proj=longlat +ellps=WGS84")
 ```
 
-##Soil Data (topsoil)
+##Generate random data
+```{r}
+Mock_Species <- paste("species", 1:40, sep = "")
+Mock_Species
+
+for(i in 1:length(Mock_Species)){
+  if (i < 20){
+    Seqlat <- seq(from=15, to=25, by=.01)
+    Seqlong <- seq(from=-6, to=25, by=.01)
+    Latitude <- sample(Seqlat, size=100, replace=TRUE)
+    Longitude <- sample(Seqlong, size=100, replace=TRUE)
+    Growth_State <- replicate(100, 1)
+    VirtualCoordinates <- data.frame(x= Longitude, y = Latitude, species = Mock_Species[i], Growth_State)
+    write.csv(VirtualCoordinates, file = paste("Data/MockData/", Mock_Species[i], ".csv", sep = ""), quote = F)
+  }
+  else {
+    Seqlat <- seq(from=-11, to=2, by=.01)
+    Seqlong <- seq(from=-74, to=-53, by=.01)
+    Latitude <- sample(Seqlat, size=100, replace=TRUE)
+    Longitude <- sample(Seqlong, size=100, replace=TRUE)
+    Growth_State <- replicate(100, 0)
+    VirtualCoordinates <- data.frame(x= Longitude, y = Latitude, species = Mock_Species[i], Growth_State)
+    write.csv(VirtualCoordinates, file = paste("Data/MockData/", Mock_Species[i], ".csv", sep = ""), quote = F)
+  }  
+}
+```
+
 
 ##Occurrence data
 ```{r}
@@ -171,79 +191,44 @@ occurrences.spdf <- new(
     )
 ) 
 sp::proj4string(occurrences.spdf) <- crs("+proj=longlat +ellps=WGS84")
+```
 
-Tribe <- "Lepidieae"
-
-# Populate the empty dataframe with lat/lon values from the taxa list
-gbif_summary <- read.csv("Data/gbif_summary.csv")
-# set for example i in 1:100 in the case of memory limits 
-taxa.names <- gbif_summary[gbif_summary$Tribe == Tribe,]
-taxa.names <- taxa.names$Name[taxa.names$BrassiBase_status == "accepted" & taxa.names$gbif_records > 20]
-taxa.names
-for (j in 1:length(taxa.names)) {
+```{r}
+for (j in 1:length(Mock_Species)) {
     
     # Prevent out of bounds errors
-    if (j > length(taxa.names)) {
+    if (j > length(Mock_Species)) {
         break
     }
   
 	# Read occurrences
-    species.key <- gbif_summary$speciesKey[gbif_summary$Name == taxa.names[j] & !duplicated(gbif_summary$Name)]
-    csv.file <- paste("Data/gbif_occurrences_per_key/", species.key, ".csv", sep = "")
+    csv.file <- paste("Data/MockData/", Mock_Species[j], ".csv", sep = "")
     csv.data <- read.csv(csv.file)
     #tryCatch(csv.data <- read.csv(csv.file), error=function(e) force(do.next))
     points.df <- dplyr::select(
         csv.data,
-        decimalLongitude,
-        decimalLatitude,
+        x,
+        y,
         species
     )
     #Coordinate Cleaner
     points.df <- na.omit(points.df)
-    if(nrow(points.df) < 20 & file.exists(paste("Data/gbif_occurrences_per_key/", species.key, "_extra.csv", sep = "")) == T){
-    csv.file.extra <- paste("Data/gbif_occurrences_per_key/", species.key, "_extra.csv", sep = "")
-    csv.data.extra <- read.csv(csv.file.extra)
-    points.extra.df <- dplyr::select(
-    csv.data.extra,
-    decimalLongitude,
-    decimalLatitude,
-    species
-    )    
-    points.extra.df <- na.omit(points.extra.df)
-    points.df <- rbind(points.df, points.extra.df)}
-    
-        if (nrow(points.df) < 20) {next}
-    else {
-    
     #points.df <- points.df[rowSums(points.df[,1:2]) > 0,]
+
     
-    points.df <- cc_cap(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species")
-    points.df <- cc_cen(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species")
-    points.df <- cc_dupl(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species")
-    points.df <- cc_equ(points.df, lon = "decimalLongitude", lat = "decimalLatitude")
-    points.df <- cc_gbif(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species")
-    points.df <- cc_inst(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species")
-    points.df <- cc_outl(points.df, lon = "decimalLongitude", lat = "decimalLatitude", species = "species")
-    points.df <- cc_sea(points.df, lon = "decimalLongitude", lat = "decimalLatitude")
-    
-    if (nrow(points.df) == 0) {next}
-    points.df <- cc_zero(points.df, lon = "decimalLongitude", lat = "decimalLatitude")
-    
-    if (nrow(points.df) < 20) {next}
-    sp::coordinates(points.df) <- ~ decimalLongitude + decimalLatitude
+    sp::coordinates(points.df) <- ~ x + y
     sp::proj4string(points.df) <- crs("+proj=longlat +ellps=WGS84")
     
     # Populate SpatialPointsDataFrame for focal taxon
     focal.spdf <- SpatialPointsDataFrame(
     	points.df, 
-    	data.frame(species = rep(taxa.names[j], NROW(points.df)))
+    	data.frame(species = rep(Mock_Species[j], NROW(points.df)))
     )
     sp::proj4string(focal.spdf) <- crs("+proj=longlat +ellps=WGS84")
     
     # Append to cumulative data frame
     occurrences.spdf <- rbind(occurrences.spdf, focal.spdf)
     
-    }
 }
 ```
 
@@ -252,6 +237,8 @@ for (j in 1:length(taxa.names)) {
 ```{r}
 occurrences.df <- data.frame(occurrences.spdf@data)
 occurrences.df <- cbind(occurrences.df, occurrences.spdf@coords)
+occurrences.df$Growth_State <- 0
+occurrences.df$Growth_State[0:1900] <- 1
 lon <- dplyr::select(occurrences.df, x)
 lat <- dplyr::select(occurrences.df, y)
 
@@ -261,10 +248,10 @@ shape_df <- fortify(shape, region = 'ISO3')
 
 ggplot() +
   geom_polygon(data = shape_df, aes(x = long, y = lat, group = group), fill = "white", color = "black")+
-  geom_point(aes(x, y, fill = species), data = occurrences.df, shape = 21, size = 2, alpha = 0.5, col = "black") +
+  geom_point(aes(x, y, fill = Growth_State), data = occurrences.df, shape = 21, size = 2, alpha = 0.5, col = "black") +
     coord_equal(xlim = c((min(lon) - 1), (max(lon) + 1)), ylim = c(min(lat) - 1, max(lat) + 1)) +
   xlab("Longitude") + ylab("Latitude") +
-  theme(panel.border = element_rect(fill=NA), legend.position = 'none')
+  theme(panel.border = element_rect(fill=NA), legend.position = 'right')
 ```
 
 
@@ -307,16 +294,17 @@ traitvalues.dudi <- ade4::dudi.pca(
     traitvalues.df[2:length(traitvalues.df)], 
     scannf = F
 )
+scatter(traitvalues.dudi)
 ```
 
 ##Then the OMI analysis
 ```{r}
 niche.dudi <- ade4::niche(traitvalues.dudi, noccurrences.df, scannf = F)
 par(mfrow = c(1,1))
-scatter(niche.dudi)
+plot(niche.dudi)
 screeplot(niche.dudi)
 kable(niche.param(niche.dudi))
-plot(niche.dudi)
+rtest(niche.dudi)
 ```
 
 ```{r}
@@ -334,39 +322,30 @@ write.csv(niche.dudi$tab, file = "./Results/niche_traits_merged_Lepidium", appen
 
 #Read Tree and filter to species in OMI
 ```{r}
-MetaData1 <- read_csv("./Data/2e.metadata.csv")
-BrassiToL <- read.tree("Data/species_tree.tre")
-names_to_drop <- setdiff(MetaData1$Name, names)
-tips <- MetaData1$Library_ID[MetaData1$Name %in% names_to_drop]
-BrassiToL_Lepidium <- drop.tip(BrassiToL, tips)
+set.seed(184)
+Phylogeny_clustered <- ape::rtree(40)
+Phylogeny_clustered$tip.label <- Mock_Species
+plot(Phylogeny_clustered)
 ```
+
+```{r}
+set.seed(184)
+Phylogeny_random <- ape::rtree(40, tip.label = Mock_Species)
+plot(Phylogeny_random)
+```
+
 
 #Combine trait data of species and enviroment
 ```{r}
-Growth_Form_ID <- subset(MetaData1, Tribe == Tribe, select = c(Library_ID, Growth_habit, Name))
-Growth_Form <- data.frame(Growth_Form_ID)
-rownames(Growth_Form) <- Growth_Form_ID$Library_ID
-Growth_Form <- subset(Growth_Form, select = c(Growth_habit, Name))
-```
-
-```{r}
-Growth_Form$Growth_habit[Growth_Form$Growth_habit == "H"] <- 0
-Growth_Form$Growth_habit[Growth_Form$Growth_habit == "W"] <- 1
-Growth_Form$Growth_habit <- base::as.numeric(Growth_Form$Growth_habit)
-```
-
-```{r}
 MeanBioClim <- niche.dudi$tab
-rownames(MeanBioClim) <- gsub(".", " ", rownames(MeanBioClim), fixed = T)
-common1 <- intersect(rownames(MeanBioClim), Growth_Form_ID$Name)
-MeanBioClim <- MeanBioClim[common1,]
-SpeciesNames <- rownames(MeanBioClim)
+Growth_Form <- data.frame(Mock_Species)
+rownames(Growth_Form) <- Growth_Form$Mock_Species
+Growth_Form$Growth_habit <- 1
+Growth_Form$Growth_habit[20:40] <- 0
 ```
 
 ```{r}
-common2 <- intersect(rownames(Growth_Form), BrassiToL_Lepidium$tip.label)
-Growth_Form <- Growth_Form[common2,]
-Growth_Form <- distinct(Growth_Form, Name, .keep_all = T)
+Growth_Form$Growth_habit <- base::as.numeric(Growth_Form$Growth_habit)
 ```
 
 ##Add the ENVIREM OMI-transformed climatic data for each species
@@ -375,21 +354,21 @@ Growth_Form[,3:38] <- NA
 Trait_names <- colnames(MeanBioClim)
 colnames(Growth_Form)[3:38] <- Trait_names
 for (i in 1:length(Trait_names)) {
-  for(j in 1:length(SpeciesNames)){
-    Growth_Form[Growth_Form$Name == SpeciesNames[j], colnames(Growth_Form) == Trait_names[i]] <- MeanBioClim[rownames(MeanBioClim) == SpeciesNames[j], colnames(MeanBioClim) == Trait_names[i]]
+  for(j in 1:length(Mock_Species)){
+    Growth_Form[Growth_Form$Mock_Species == Mock_Species[j], colnames(Growth_Form) == Trait_names[i]] <- MeanBioClim[rownames(MeanBioClim) == Mock_Species[j], colnames(MeanBioClim) == Trait_names[i]]
   }
 }
-```
-
-```{r}
-Growth_Form <- na.omit(Growth_Form)
 Growth_Form <- Growth_Form[,c(1:3, 14:21, 4:13, 22:38)]
 ```
 
 ```{r}
-Growth_Form_Name <- subset(Growth_Form, select = Name)
+Growth_Form <- na.omit(Growth_Form)
+```
+
+```{r}
+Growth_Form_Name <- subset(Growth_Form, select = Mock_Species)
 Growth_Form_Trait <- subset(Growth_Form, select = Growth_habit)
-  Growth_Form_Trait$Growth_habit <- as.factor(Growth_Form_Trait$Growth_habit)
+Growth_Form_Trait$Growth_habit <- as.factor(Growth_Form_Trait$Growth_habit)
 Growth_Form_UV <- subset(Growth_Form, select = UV)
 ```
 
@@ -398,12 +377,20 @@ Growth_Form$Growth_habit <- factor(Growth_Form$Growth_habit, levels = 0:1, label
 ```
 #Plot tree
 ```{r}
-p <- ggtree(BrassiToL_Lepidium) %<+% MetaData1 +
-  geom_tiplab(size = 3) +
-  geom_tiplab(aes(label = Name), offset = 2, size = 3)
+p <- ggtree(Phylogeny_clustered) %<+% Growth_Form +
+  geom_tiplab(size = 3)
+  #geom_tiplab(aes(label = Growth_Form_Name), offset = 2, size = 3)
 p2 <- gheatmap(p, Growth_Form_Trait, offset = 5, width = 0.1)
 p3 <- p2 + new_scale_fill()
 gheatmap(p3, Growth_Form_UV, offset = 8, width = 0.1) + scale_fill_continuous(na.value = "white")
+
+p <- ggtree(Phylogeny_random) %<+% Growth_Form +
+  geom_tiplab(size = 3)
+  #geom_tiplab(aes(label = Growth_Form_Name), offset = 2, size = 3)
+p2 <- gheatmap(p, Growth_Form_Trait, offset = 5, width = 0.1)
+p3 <- p2 + new_scale_fill()
+gheatmap(p3, Growth_Form_UV, offset = 8, width = 0.1) + scale_fill_continuous(na.value = "white")
+
 ```
 
 #Boxplots
@@ -417,15 +404,16 @@ Growth_Form_Long <- gather(Growth_Form_Long, BCVariable, Value, 4:39, factor_key
 
 boxplot <- ggplot(Growth_Form_Long, aes(Growth_habit, Value, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
-  stat_compare_means(method = "t.test", label.y.npc = "bottom") +
+  stat_compare_means(method = "t.test", label.y.npc = "center") +
 facet_wrap(~ BCVariable)
 boxplot
 ```
 
 #Make a dendrogram of all variables to see the relationship between them
 
-```{r}
+```{r, warning=FALSE}
 MeanBioClim.matrix <- as.matrix(MeanBioClim)
+MeanBioClim.matrix <- scale(MeanBioClim.matrix)
 v <- varclus(MeanBioClim.matrix)
 h <- v$hclust
 hd <- as.dendrogram(h)
@@ -440,49 +428,61 @@ randomvars <- data.frame()
 variables <- c()
 
 for (i in 1:length(colours)) {
-showvar <- vars[sample(which(vars$col == colours[i]), 1), ]
+showvar <- vars[sample(which(vars$col == colours[i]), 2), ]
 randomvars <- rbind(randomvars, showvar)
 }
 randomvars$label
 ```
 
 
-#Do a VIF analysis to exclude correlating variables
-```{r}
-vif <- vif(MeanBioClim[-c(1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 35)])
-vif$Variables
-```
-
 
 #Make a model to use in phyloglm based on the boxplots and vif
 ```{r}
 unique(Growth_Form$Name)
 
-formula_0 <- Growth_habit ~ wc2.1_10m_bio_7 + wc2.1_10m_bio_16 + wc2.1_10m_bio_11 + wc2.1_10m_bio_2 + wc2.1_10m_bio_17  
-formula_1 <- Growth_habit ~ wc2.1_10m_bio_1 + wc2.1_10m_bio_5 + wc2.1_10m_bio_9 + wc2.1_10m_bio_10 + wc2.1_10m_bio_12 + wc2.1_10m_bio_13 + wc2.1_10m_bio_14 + wc2.1_10m_bio_16 + wc2.1_10m_bio_17 + wc2.1_10m_bio_18 + wc2.1_10m_bio_19 + current_10arcmin_annualPET + current_10arcmin_aridityIndexThornthwaite + current_10arcmin_climaticMoistureIndex + current_10arcmin_embergerQ + current_10arcmin_growingDegDays0 + current_10arcmin_growingDegDays5 + current_10arcmin_minTempWarmest + current_10arcmin_monthCountByTemp10 + current_10arcmin_PETDriestQuarter + current_10arcmin_PETseasonality + current_10arcmin_PETWarmestQuarter + current_10arcmin_thermicityIndex
+formula_1 <- Growth_habit ~  wc2.1_10m_bio_1 + wc2.1_10m_bio_8 + current_10arcmin_PETDriestQuarter + current_10arcmin_PETWarmestQuarter + wc2.1_10m_bio_5 + current_10arcmin_PETWarmestQuarter + wc2.1_10m_bio_2 + wc2.1_10m_bio_15 + wc2.1_10m_bio_13 + wc2.1_10m_bio_11       
 ```
 
 #Make brench lengths 1 and extend branches
 ```{r}
-BrassiToL_Lepidium_extended <- BrassiToL_Lepidium
-NEdge <- length(BrassiToL_Lepidium_extended$edge.length)
+Phylogeny_clustered_extended <- Phylogeny_clustered
+NEdge <- length(Phylogeny_clustered_extended$edge.length)
 edge_length <- replicate(NEdge, 1)
-BrassiToL_Lepidium_extended$edge.length <- edge_length
-N <- Ntip(BrassiToL_Lepidium_extended)
+Phylogeny_clustered_extended$edge.length <- edge_length
+N <- Ntip(Phylogeny_clustered_extended)
 root_node <- N+1
-root_to_tip <- dist.nodes(BrassiToL_Lepidium_extended)[1:N, root_node]
+root_to_tip <- dist.nodes(Phylogeny_clustered_extended)[1:N, root_node]
 var(root_to_tip)
 age_difference <- max(root_to_tip) - root_to_tip
-tip_edges <- BrassiToL_Lepidium_extended$edge[, 2] <= Ntip(BrassiToL_Lepidium_extended)
-BrassiToL_Lepidium_extended$edge.length[tip_edges] <- BrassiToL_Lepidium_extended$edge.length[tip_edges] + age_difference
-is.ultrametric(BrassiToL_Lepidium_extended)
-BrassiToL_Lepidium_extended <- rescaleRR(BrassiToL_Lepidium_extended, height = 1)
+tip_edges <- Phylogeny_clustered_extended$edge[, 2] <= Ntip(Phylogeny_clustered_extended)
+Phylogeny_clustered_extended$edge.length[tip_edges] <- Phylogeny_clustered_extended$edge.length[tip_edges] + age_difference
+is.ultrametric(Phylogeny_clustered_extended)
+Phylogeny_clustered_extended <- rescaleRR(Phylogeny_clustered_extended, height = 1)
 
-plot(BrassiToL_Lepidium_extended)
+plot(Phylogeny_clustered_extended)
+
+Phylogeny_random_extended <- Phylogeny_random
+NEdge <- length(Phylogeny_random_extended$edge.length)
+edge_length <- replicate(NEdge, 1)
+Phylogeny_random_extended$edge.length <- edge_length
+N <- Ntip(Phylogeny_random_extended)
+root_node <- N+1
+root_to_tip <- dist.nodes(Phylogeny_random_extended)[1:N, root_node]
+var(root_to_tip)
+age_difference <- max(root_to_tip) - root_to_tip
+tip_edges <- Phylogeny_random_extended$edge[, 2] <= Ntip(Phylogeny_random_extended)
+Phylogeny_random_extended$edge.length[tip_edges] <- Phylogeny_random_extended$edge.length[tip_edges] + age_difference
+is.ultrametric(Phylogeny_random_extended)
+Phylogeny_random_extended <- rescaleRR(Phylogeny_random_extended, height = 1)
+
+plot(Phylogeny_random_extended)
 ```
 
 #PhyloGLM 
 ```{r}
-fit <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = BrassiToL_Lepidium_extended, btol = 10)
-summary(fit)
+fit_random <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = Phylogeny_random_extended, btol = 20)
+
+fit_clustered <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = Phylogeny_clustered_extended, btol = 20)
+summary(fit_random)
+summary(fit_clustered)
 ```
