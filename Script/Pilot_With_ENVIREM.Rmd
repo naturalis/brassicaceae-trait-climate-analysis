@@ -61,7 +61,6 @@ files.names <- list.files("./Data/ENVIREM")
 gis.layers.names <- files.names
 gis.layers.names <- gsub("current_10arcmin_", "", gis.layers.names)
 
-gis.layers <- c()
 # Iterate over files
 for (j in 1:length(files.names)) {
   
@@ -77,7 +76,6 @@ for (j in 1:length(files.names)) {
     )
   )
 }
-plot(WorldENVIREM)
 ```
 
 ##Extract coordinates from 1 layer
@@ -106,11 +104,40 @@ sp::proj4string(UV_Bound) <- crs("+proj=longlat +ellps=WGS84")
 
 UV_Bound.raster <- rasterFromXYZ(UV_Bound)
 sp::proj4string(UV_Bound.raster) <- crs("+proj=longlat +ellps=WGS84")
+names(UV_Bound.raster) <- "UV"
 ```
+
+```{r}
+soil_files <- list.files("./Data/Soil_Data_5m")
+soil_files <- soil_files[-c(11, 12)]
+WorldSoil <- raster()
+
+for (i in 1:length(soil_files)) {
+  Soil_Layer <- raster(paste("./Data/Soil_Data_5m/", soil_files[i], sep = ""))
+  
+  SoilCells <- raster::cellFromXY(Soil_Layer, coordinates)
+  SoilValues <- raster::extract(Soil_Layer, SoilCells)
+  SoilValues[is.na(SoilValues)] <- 0
+  Soil_bound <- cbind(SoilValues, coordinates)
+  Soil_bound <- data.frame(Soil_bound)
+
+  sp::coordinates(Soil_bound) <- ~ x + y
+  sp::proj4string(Soil_bound) <- crs("+proj=longlat +ellps=WGS84")
+
+  Soil_bound.raster <- rasterFromXYZ(Soil_bound)
+  sp::proj4string(Soil_bound.raster) <- crs("+proj=longlat +ellps=WGS84")
+  names(Soil_bound.raster) <- soil_files[i]
+  WorldSoil <- stack(WorldSoil, Soil_bound.raster)
+}
+plot(WorldSoil)
+```
+
+
 
 ```{r}
 WorldENVIREM <- crop(WorldENVIREM, UV_Bound.raster)
 WorldENVIREM <- stack(WorldENVIREM, UV_Bound.raster)
+WorldENVIREM <- stack(WorldENVIREM, WorldSoil)
 plot(WorldENVIREM)
 
 rm(gis.layers.names, files.names, j)
@@ -153,7 +180,6 @@ All_Layers.spdf <- as(All_Layers, "SpatialPixelsDataFrame")
 sp::proj4string(All_Layers.spdf) <- crs("+proj=longlat +ellps=WGS84")
 ```
 
-##Soil Data (topsoil)
 
 ##Occurrence data
 ```{r}
@@ -172,14 +198,13 @@ occurrences.spdf <- new(
 ) 
 sp::proj4string(occurrences.spdf) <- crs("+proj=longlat +ellps=WGS84")
 
-Tribe <- "Lepidieae"
+Tribe <- "Alysseae"
 
 # Populate the empty dataframe with lat/lon values from the taxa list
 gbif_summary <- read.csv("Data/gbif_summary.csv")
 # set for example i in 1:100 in the case of memory limits 
 taxa.names <- gbif_summary[gbif_summary$Tribe == Tribe,]
 taxa.names <- taxa.names$Name[taxa.names$BrassiBase_status == "accepted" & taxa.names$gbif_records > 20]
-taxa.names
 for (j in 1:length(taxa.names)) {
     
     # Prevent out of bounds errors
@@ -277,8 +302,6 @@ names <- unique(occurrences.spdf$species)
 traitvalues.df <- slot(All_Layers.spdf, "data")
 traitvalues.df <- tibble::rowid_to_column(traitvalues.df, "ID")
 traitvalues.df <- na.omit(traitvalues.df)
-traitvalues.df$UV <- traitvalues.df$layer
-traitvalues.df <- subset(traitvalues.df, select = -layer)
 ```
 
 ##Presence/absence matrix per cell
@@ -316,7 +339,10 @@ par(mfrow = c(1,1))
 scatter(niche.dudi)
 screeplot(niche.dudi)
 kable(niche.param(niche.dudi))
-plot(niche.dudi)
+ordered1 <- order(niche.dudi$c1$CS1)
+var1 <- rownames(niche.dudi$c1[ordered1[1],])
+ordered2 <- order(niche.dudi$c1$CS2)
+var2 <- rownames(niche.dudi$c1[ordered2[1],])
 ```
 
 ```{r}
@@ -343,7 +369,7 @@ BrassiToL_Lepidium <- drop.tip(BrassiToL, tips)
 
 #Combine trait data of species and enviroment
 ```{r}
-Growth_Form_ID <- subset(MetaData1, Tribe == Tribe, select = c(Library_ID, Growth_habit, Name))
+Growth_Form_ID <- subset(MetaData1, Tribe = Tribe, select = c(Library_ID, Growth_habit, Name))
 Growth_Form <- data.frame(Growth_Form_ID)
 rownames(Growth_Form) <- Growth_Form_ID$Library_ID
 Growth_Form <- subset(Growth_Form, select = c(Growth_habit, Name))
@@ -371,9 +397,10 @@ Growth_Form <- distinct(Growth_Form, Name, .keep_all = T)
 
 ##Add the ENVIREM OMI-transformed climatic data for each species
 ```{r}
-Growth_Form[,3:38] <- NA
+Growth_Form[,3:48] <- NA
 Trait_names <- colnames(MeanBioClim)
-colnames(Growth_Form)[3:38] <- Trait_names
+colnames(Growth_Form)[3:48] <- Trait_names
+Growth_Form <- Growth_Form[,-49]
 for (i in 1:length(Trait_names)) {
   for(j in 1:length(SpeciesNames)){
     Growth_Form[Growth_Form$Name == SpeciesNames[j], colnames(Growth_Form) == Trait_names[i]] <- MeanBioClim[rownames(MeanBioClim) == SpeciesNames[j], colnames(MeanBioClim) == Trait_names[i]]
@@ -383,28 +410,20 @@ for (i in 1:length(Trait_names)) {
 
 ```{r}
 Growth_Form <- na.omit(Growth_Form)
-Growth_Form <- Growth_Form[,c(1:3, 14:21, 4:13, 22:38)]
+Growth_Form <- Growth_Form[,c(1:3, 14:21, 4:13, 22:48)]
 ```
 
 ```{r}
 Growth_Form_Name <- subset(Growth_Form, select = Name)
 Growth_Form_Trait <- subset(Growth_Form, select = Growth_habit)
   Growth_Form_Trait$Growth_habit <- as.factor(Growth_Form_Trait$Growth_habit)
-Growth_Form_UV <- subset(Growth_Form, select = UV)
+Growth_Form_annotation <- subset(Growth_Form, select = -c(1, 2))
 ```
 
 ```{r}
 Growth_Form$Growth_habit <- factor(Growth_Form$Growth_habit, levels = 0:1, labels = c(0,1))
 ```
-#Plot tree
-```{r}
-p <- ggtree(BrassiToL_Lepidium) %<+% MetaData1 +
-  geom_tiplab(size = 3) +
-  geom_tiplab(aes(label = Name), offset = 2, size = 3)
-p2 <- gheatmap(p, Growth_Form_Trait, offset = 5, width = 0.1)
-p3 <- p2 + new_scale_fill()
-gheatmap(p3, Growth_Form_UV, offset = 8, width = 0.1) + scale_fill_continuous(na.value = "white")
-```
+
 
 #Boxplots
 ##Make boxplots per variable ENVIREM
@@ -412,8 +431,8 @@ gheatmap(p3, Growth_Form_UV, offset = 8, width = 0.1) + scale_fill_continuous(na
 ```{r}
 Growth_Form_Long <- Growth_Form
 Growth_Form_Long$ID <- rownames(Growth_Form_Long)
-Growth_Form_Long <- Growth_Form_Long[,c(1:2, 39, 3:38)]
-Growth_Form_Long <- gather(Growth_Form_Long, BCVariable, Value, 4:39, factor_key = T)
+Growth_Form_Long <- Growth_Form_Long[,c(1:2, 39, 3:49)]
+Growth_Form_Long <- gather(Growth_Form_Long, BCVariable, Value, 4:49, factor_key = T)
 
 boxplot <- ggplot(Growth_Form_Long, aes(Growth_habit, Value, group = Growth_habit, fill = Growth_habit)) +
   geom_boxplot() +
@@ -437,29 +456,12 @@ clusters <- dend$layers[[4]]$data
 
 colours <- unique(vars$col)
 randomvars <- data.frame()
-variables <- c()
 
 for (i in 1:length(colours)) {
 showvar <- vars[sample(which(vars$col == colours[i]), 1), ]
 randomvars <- rbind(randomvars, showvar)
 }
 randomvars$label
-```
-
-
-#Do a VIF analysis to exclude correlating variables
-```{r}
-vif <- vif(MeanBioClim[-c(1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 35)])
-vif$Variables
-```
-
-
-#Make a model to use in phyloglm based on the boxplots and vif
-```{r}
-unique(Growth_Form$Name)
-
-formula_0 <- Growth_habit ~ wc2.1_10m_bio_7 + wc2.1_10m_bio_16 + wc2.1_10m_bio_11 + wc2.1_10m_bio_2 + wc2.1_10m_bio_17  
-formula_1 <- Growth_habit ~ wc2.1_10m_bio_1 + wc2.1_10m_bio_5 + wc2.1_10m_bio_9 + wc2.1_10m_bio_10 + wc2.1_10m_bio_12 + wc2.1_10m_bio_13 + wc2.1_10m_bio_14 + wc2.1_10m_bio_16 + wc2.1_10m_bio_17 + wc2.1_10m_bio_18 + wc2.1_10m_bio_19 + current_10arcmin_annualPET + current_10arcmin_aridityIndexThornthwaite + current_10arcmin_climaticMoistureIndex + current_10arcmin_embergerQ + current_10arcmin_growingDegDays0 + current_10arcmin_growingDegDays5 + current_10arcmin_minTempWarmest + current_10arcmin_monthCountByTemp10 + current_10arcmin_PETDriestQuarter + current_10arcmin_PETseasonality + current_10arcmin_PETWarmestQuarter + current_10arcmin_thermicityIndex
 ```
 
 #Make brench lengths 1 and extend branches
@@ -478,11 +480,64 @@ BrassiToL_Lepidium_extended$edge.length[tip_edges] <- BrassiToL_Lepidium_extende
 is.ultrametric(BrassiToL_Lepidium_extended)
 BrassiToL_Lepidium_extended <- rescaleRR(BrassiToL_Lepidium_extended, height = 1)
 
-plot(BrassiToL_Lepidium_extended)
+```
+
+#Plot tree
+```{r}
+p <- ggtree(BrassiToL_Lepidium_extended) %<+% MetaData1 +
+  geom_tiplab(size = 3, offset = 0.2) +
+  geom_tiplab(aes(label = Name), offset = 0.5, size = 3) + 
+  geom_text(aes(label=node), hjust=-.3)
+p2 <- gheatmap(p, Growth_Form_Trait, offset = 1.5, width = 0.5)
+p3 <- p2 + new_scale_fill()
+gheatmap(p3, Growth_Form_annotation, offset = 2, width = 5, colnames_angle = -45, colnames_offset_y = 5, colnames_position = "top") + scale_fill_continuous(na.value = "white")
+```
+
+#Pagel's Lambda 
+```{r}
+Pagel <- data.frame(row.names = Trait_names)
+Pagel$lambda <- NA
+for (i in 1:length(Trait_names)) {
+trait <- Growth_Form[,i+2]
+names(trait) <- rownames(Growth_Form)
+lambda <- phylosig(BrassiToL_Lepidium_extended, trait, method="lambda", test=TRUE, nsim=999)
+Pagel$lambda[i] <- lambda$lambda
+}
+```
+
+#Correlation test
+```{r}
+correlation <- cor(Growth_Form_annotation, method="spearman")
+correlation <- as.data.frame(correlation)
+col_1 <- which(correlation$current_10arcmin_PETColdestQuarter < 0.7 & correlation$current_10arcmin_PETColdestQuarter > -0.7)
+col_2 <- which(correlation$current_10arcmin_embergerQ < 0.7 & correlation$current_10arcmin_embergerQ > -0.7)
+Trait_no_col <- intersect(col_1, col_2)
+Trait_names <- rownames(correlation)
+Trait_names[Trait_no_col]
+```
+
+```{r}
+vif <- vif(MeanBioClim[c(2, 3, 5, 30, 31, 45)])
+vif
+```
+
+#Make a model to use in phyloglm based on the boxplots and vif
+```{r}
+unique(Growth_Form$Name)
+
+formula_0 <- Growth_habit ~  wc2.1_10m_bio_10 + wc2.1_10m_bio_11 + wc2.1_10m_bio_13 + current_10arcmin_PETColdestQuarter + current_10arcmin_PETDriestQuarter + ROOTS5min.nc
+
+formula_1 <- Growth_habit ~ wc2.1_10m_bio_1 + wc2.1_10m_bio_9 + wc2.1_10m_bio_10 + wc2.1_10m_bio_12 + wc2.1_10m_bio_13 + wc2.1_10m_bio_14 + wc2.1_10m_bio_16 + wc2.1_10m_bio_17 + wc2.1_10m_bio_18 + wc2.1_10m_bio_19 + current_10arcmin_annualPET + current_10arcmin_aridityIndexThornthwaite + current_10arcmin_climaticMoistureIndex + current_10arcmin_embergerQ + current_10arcmin_growingDegDays0 + current_10arcmin_growingDegDays5 + current_10arcmin_minTempWarmest + current_10arcmin_monthCountByTemp10 + current_10arcmin_PETDriestQuarter + current_10arcmin_PETWarmestQuarter + current_10arcmin_thermicityIndex
+
+formula_2 <- Growth_habit ~ wc2.1_10m_bio_13 + wc2.1_10m_bio_17 + wc2.1_10m_bio_19 + current_10arcmin_minTempWarmest + current_10arcmin_monthCountByTemp10 + current_10arcmin_PETDriestQuarter + current_10arcmin_PETseasonality
+
+formula_3 <- Growth_habit ~ current_10arcmin_climaticMoistureIndex
+
+
 ```
 
 #PhyloGLM 
 ```{r}
-fit <- phyloglmstep(formula = formula_1, data = Growth_Form, phy = BrassiToL_Lepidium_extended, btol = 10)
+fit <- phyloglmstep(formula = formula_0, data = Growth_Form, phy = BrassiToL_Lepidium_extended, method="logistic_MPLE", direction = "both", btol = 50, log.alpha.bound = 8, start.beta=NULL, start.alpha=NULL, boot = 0, full.matrix = TRUE, k=2)
 summary(fit)
 ```
